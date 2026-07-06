@@ -1,0 +1,41 @@
+events {}
+
+http {
+    resolver 1.1.1.1 ipv6=off valid=30s;
+
+    # Reparte cada request de forma aleatoria (~50/50) entre las 2 instancias backend.
+    # split_clients usa $request_id, que es único por cada petición, logrando
+    # una distribución de tráfico equivalente a round-robin.
+    split_clients "${request_id}" $backend {
+        50%     "nexolocal-api-1.onrender.com";
+        *       "nexolocal-api-2.onrender.com";
+    }
+
+    server {
+        listen $PORT;
+
+        # Endpoint propio del proxy, para verificar que Nginx está vivo
+        location /proxy-health {
+            default_type application/json;
+            return 200 '{"proxy":"ok"}';
+        }
+
+        location / {
+            set $upstream https://$backend;
+            proxy_pass $upstream;
+
+            proxy_set_header Host $backend;
+            proxy_ssl_server_name on;
+            proxy_ssl_name $backend;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+
+            # Headers de seguridad básicos
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-Content-Type-Options "nosniff" always;
+
+            # Header propio para evidenciar a qué backend fue cada request
+            add_header X-Upstream-Backend $backend always;
+        }
+    }
+}
